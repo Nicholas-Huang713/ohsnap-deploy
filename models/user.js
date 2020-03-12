@@ -1,6 +1,4 @@
 const mongoose = require('mongoose');
-
-//Schema
 const Schema = mongoose.Schema;
 
 const UserSchema = new Schema({
@@ -8,8 +6,8 @@ const UserSchema = new Schema({
     lastname: String,
     email: String,
     password: String,
-    favelist: [],
-    posts: [],
+    favelist: [String],
+    posts: [{}],
     date: {
         type: String,
         default: Date.now()
