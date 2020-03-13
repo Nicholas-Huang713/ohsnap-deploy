@@ -1,10 +1,71 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/user');
+const Image = require('../models/image');
 const jwt = require('jsonwebtoken');
 const {registerValidation, loginValidation} = require('../validation');
 const bcrypt = require('bcryptjs');
-// const fs = require('fs');
+const multer = require('multer');
+
+const storage = multer.diskStorage({
+    destination: function(req, file, cb){
+        cb(null,'./uploads')
+    },
+    filename: function(req, file, cb){
+        cb(null, Date.now() + file.originalname);
+    }
+});
+
+const fileFilter = (req, file, cb) => {
+    if(file.mimetype === 'image/jpeg' || file.mimetype === "image/png"){
+        cb(null, true);
+    } else {
+        cb(null, false);
+    }
+};
+
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 1024 * 1024 * 5
+    },
+    fileFilter: fileFilter
+});
+
+router.put('/uploadimage', verifyToken, upload.single('imageData'), (req, res, next) => {
+    console.log(req.body);
+    // if (!req.file) return res.send('Please upload a file');
+    console.log("File recieved");
+    const newImage = new Image({
+        imageName: req.body.imageName,
+        imageData: req.file.path
+    });
+    // newImage.save()
+    //     .then(() => {
+    //         res.status(200).json({
+    //             success: true,
+    //             document: result
+    //         });
+    //         console.log("Successfully uploaded image");
+    //     })
+    // .catch(err => res.json(err)); 
+
+    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    User.updateOne({_id: decodedId}, {$push: {posts: newImage}})
+    .then(() => {
+        res.status(200).json({
+            success: true,
+            document: result
+        });
+        console.log("Successfully uploaded image")
+    })
+    .catch(err => res.json(err));
+});
+
+
+
+
+
 
 
 //REGISTER
@@ -47,6 +108,19 @@ router.get('/', (req, res) => {
     User.find({})
     .then((data) => {res.json(data)})
     .catch((error) => {console.log('Error: ' + error)});
+});
+
+//GET A USER
+router.get('/getuser', verifyToken, (req, res) => {
+    jwt.verify(req.token,  process.env.TOKEN_SECRET, (err, decoded) => {
+        if(err){
+            res.sendStatus(403);
+        } else {
+            User.find({_id: decoded})
+            .then((data) => {res.json(data)})
+            .catch((error) => {console.log('Error: ' + error)});
+        }
+    })
 });
 
 function verifyToken(req, res, next){

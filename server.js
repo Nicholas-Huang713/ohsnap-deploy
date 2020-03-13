@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const morgan = require('morgan');
 const path = require('path');
 const dotenv = require('dotenv');
-// const multer = require('multer');
+const bodyParser = require('body-parser');
 
 const app = express(); 
 const PORT = process.env.PORT || 8009;
@@ -26,15 +26,16 @@ mongoose.connection.on('connected', () => {
 
 app.use(express.json());
 app.use(express.urlencoded({extended: false}));
+app.use('/uploads', express.static('uploads'));
+
+
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({extended: true}));
+app.use(morgan('dev'));
 
 app.use(morgan('tiny'));
 app.use('/api', routes);
 
-// app.use(multer({ dest: './uploads/',
-//     rename: function (fieldname, filename) {
-//       return filename;
-//     },
-// }));
 
 //FOR PRODUCTION LATER!!!!!!!!
 // if(process.env.NODE_ENV === 'production'){
