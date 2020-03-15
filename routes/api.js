@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/user');
-const Image = require('../models/image');
+const Post = require('../models/post');
 const jwt = require('jsonwebtoken');
 const {registerValidation, loginValidation} = require('../validation');
 const bcrypt = require('bcryptjs');
@@ -9,7 +9,7 @@ const multer = require('multer');
 
 const storage = multer.diskStorage({
     destination: function(req, file, cb){
-        cb(null,'./uploads')
+        cb(null,'./uploads');
     },
     filename: function(req, file, cb){
         cb(null, Date.now() + file.originalname);
@@ -17,7 +17,7 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-    if(file.mimetype === 'image/jpeg' || file.mimetype === "image/png"){
+    if(file.mimetype === 'image/jpeg' || file.mimetype === "image/png" || file.mimetype === "image/jpg"){
         cb(null, true);
     } else {
         cb(null, false);
@@ -34,22 +34,14 @@ const upload = multer({
 
 router.put('/uploadimage', verifyToken, upload.single('imageData'), (req, res, next) => {
     console.log(req.body);
-    // if (!req.file) return res.send('Please upload a file');
+    if (!req.file) return res.send('Please upload a file');
     console.log("File recieved");
-    const newImage = new Image({
+    const newImage = new Post({
         imageName: req.body.imageName,
-        imageData: req.file.path
+        imageData: req.file.path,
+        title: req.body.title,
+        description: req.body.description
     });
-    // newImage.save()
-    //     .then(() => {
-    //         res.status(200).json({
-    //             success: true,
-    //             document: result
-    //         });
-    //         console.log("Successfully uploaded image");
-    //     })
-    // .catch(err => res.json(err)); 
-
     const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
     User.updateOne({_id: decodedId}, {$push: {posts: newImage}})
     .then(() => {
@@ -57,16 +49,10 @@ router.put('/uploadimage', verifyToken, upload.single('imageData'), (req, res, n
             success: true,
             document: result
         });
-        console.log("Successfully uploaded image")
+        console.log("Successfully uploaded image");
     })
     .catch(err => res.json(err));
 });
-
-
-
-
-
-
 
 //REGISTER
 router.post('/register', async (req, res) => {
