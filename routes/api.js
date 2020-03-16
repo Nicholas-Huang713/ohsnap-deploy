@@ -55,18 +55,21 @@ router.put('/uploadimage', verifyToken, upload.single('imageData'), (req, res, n
 });
 
 //REGISTER
-router.post('/register', async (req, res) => {
+router.post('/register', upload.single('imageData'), async (req, res, next) => {
     const {error} = registerValidation(req.body);
     if(error) return res.status(400).json(error.details[0].message);
     const emailExist = await User.findOne({email: req.body.email});
     if(emailExist) return res.status(400).json('Email already exists');
+    // if (!req.file) return res.send('Please upload a file');
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(req.body.password, salt);
     const user = new User({
         firstname: req.body.firstname,
         lastname: req.body.lastname,
         email: req.body.email, 
-        password: hashedPassword
+        password: hashedPassword,
+        imageName: req.body.imageName,
+        imageData: req.file.path
     });
     try{
         await user.save();
@@ -107,6 +110,31 @@ router.get('/getuser', verifyToken, (req, res) => {
             .catch((error) => {console.log('Error: ' + error)});
         }
     })
+});
+
+//LIKE POST
+router.put('/like', verifyToken, (req, res) => {
+    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    User.updateOne({_id: decodedId}, {$push: {favelist: req.body.id}})
+    .then(() => {
+        const likedUser = User.findOne({_id: req.body.user_id}, {$push: {likes: decodedId }});
+        
+        // .then((data) => {res.json(data);})
+        // .catch((error) => {console.log('Error: ' + error)});
+    })
+    .catch(err => res.json(err));
+});
+
+//UNLIKE POST
+router.put('/unlike', verifyToken, (req, res) => {
+    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    User.updateOne({_id: decodedId}, {$pull: {favelist: req.body.id}})
+    .then(() => {
+        User.updateOne({_id: req.body.user_id}, {$pull: {likes: decodedId}})
+        .then((data) => {res.json(data)})
+        .catch((error) => {console.log('Error: ' + error)});
+    })
+    .catch(err => res.json(err));
 });
 
 function verifyToken(req, res, next){
