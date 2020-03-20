@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/user');
 const Post = require('../models/post');
+const Comment = require('../models/comment');
 const jwt = require('jsonwebtoken');
 const {registerValidation, loginValidation} = require('../validation');
 const bcrypt = require('bcryptjs');
@@ -26,23 +27,24 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
     storage: storage,
-    limits: {
-        fileSize: 1024 * 1024 * 5
-    },
     fileFilter: fileFilter
 });
 
+//CREATE NEW POST
 router.put('/uploadimage', verifyToken, upload.single('imageData'), (req, res, next) => {
     console.log(req.body);
     if (!req.file) return res.send('Please upload a file');
     console.log("File recieved");
+    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
     const newImage = new Post({
+        creatorId: decodedId, 
+        creatorName: req.body.creatorName,
+        profileImg: req.body.profileImg,
         imageName: req.body.imageName,
         imageData: req.file.path,
-        title: req.body.title,
         description: req.body.description
     });
-    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    newImage.save();
     User.updateOne({_id: decodedId}, {$push: {posts: newImage}})
     .then(() => {
         res.status(200).json({
@@ -54,13 +56,60 @@ router.put('/uploadimage', verifyToken, upload.single('imageData'), (req, res, n
     .catch(err => res.json(err));
 });
 
+//UPDATE USER PROFILE PHOTO
+router.put('/updateprofileimg', verifyToken, upload.single('imageData'), async (req, res, next) => {
+    console.log(req.body);
+    if (!req.file) return res.send('Please choose a file');
+    const decodedId = await jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    User.updateOne({_id: decodedId},{$set:{imageData : req.file.path, imageName: req.body.imageName}})
+    .then(() => {
+        Post.updateMany({creatorId: decodedId}, {$set:{profileImg: req.file.path}})
+        .then(() => {
+            Comment.updateMany({creatorId: decodedId}, {$set:{creatorImg: req.file.path}})
+                .then(() => {
+                    User.findOne({_id: decodedId})
+                        .then((data) => {
+                            res.json(data);
+                        })
+                        .catch((error) => console.log('Error: ' + error));
+                })
+                .catch((error) => {console.log('Error: ' + error)});
+        })
+        .catch((error) => {console.log('Error: ' + error)});
+    })
+    .catch((error) => {console.log('Error: ' + error)});
+});
+
+//UPDATE USER PROFILE INFO
+router.put('/updateprofile', verifyToken, async (req, res, next) => {
+    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    User.updateOne({_id: decodedId},{$set:{firstname : req.body.firstName, lastname: req.body.lastName, email: req.body.email}})
+        .then(() => {
+            Post.updateMany({creatorId: decodedId}, {$set:{creatorName: req.body.firstName}})
+            .then(() => {
+                Comment.updateMany({creatorId: decodedId}, {$set:{creatorName: req.body.firstName}})
+                    .then(() => {
+                        User.findOne({_id: decodedId})
+                            .then((data) => {
+                                res.json(data);
+                            })
+                            .catch((error) => console.log('Error: ' + error));
+                    })
+                    .catch((error) => {console.log('Error: ' + error)});
+            })
+            .catch((error) => {console.log('Error: ' + error)});
+        })
+    .catch((error) => {console.log('Error: ' + error)});
+    
+});
+
 //REGISTER
 router.post('/register', upload.single('imageData'), async (req, res, next) => {
     const {error} = registerValidation(req.body);
     if(error) return res.status(400).json(error.details[0].message);
     const emailExist = await User.findOne({email: req.body.email});
     if(emailExist) return res.status(400).json('Email already exists');
-    // if (!req.file) return res.send('Please upload a file');
+    if (!req.file) return res.send('Please upload a file');
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(req.body.password, salt);
     const user = new User({
@@ -99,7 +148,7 @@ router.get('/', (req, res) => {
     .catch((error) => {console.log('Error: ' + error)});
 });
 
-//GET A USER
+//GET LOGGED IN USER
 router.get('/getuser', verifyToken, (req, res) => {
     jwt.verify(req.token,  process.env.TOKEN_SECRET, (err, decoded) => {
         if(err){
@@ -112,15 +161,36 @@ router.get('/getuser', verifyToken, (req, res) => {
     })
 });
 
+//GET A SINGLE USER
+router.get('/getuser/:id', verifyToken, (req, res) => {
+    User.findOne({_id: req.params.id})
+    .then((data) => {res.json(data)})
+    .catch((error) => {console.log('Error: ' + error)});
+});
+
+
+//GET ALL POSTS 
+router.get('/getposts', (req, res) => {
+    Post.find({})
+    .then((data) => {res.json(data)})
+    .catch((error) => {console.log('Error: ' + error)});
+})
+
+//GET ONE USER'S POSTS
+router.get('/getuserposts/:id', verifyToken, (req, res) => {
+    Post.find({creatorId: req.params.id})
+    .then((data) => {res.json(data)})
+    .catch((error) => {console.log('Error: ' + error)});
+})
+
 //LIKE POST
 router.put('/like', verifyToken, (req, res) => {
     const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
     User.updateOne({_id: decodedId}, {$push: {favelist: req.body.id}})
     .then(() => {
-        const likedUser = User.findOne({_id: req.body.user_id}, {$push: {likes: decodedId }});
-        
-        // .then((data) => {res.json(data);})
-        // .catch((error) => {console.log('Error: ' + error)});
+        Post.updateOne({_id: req.body.id}, {$push: {likes: decodedId}})
+        .then((data) => {res.json(data)})
+        .catch((error) => {console.log('Error: ' + error)});
     })
     .catch(err => res.json(err));
 });
@@ -130,12 +200,42 @@ router.put('/unlike', verifyToken, (req, res) => {
     const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
     User.updateOne({_id: decodedId}, {$pull: {favelist: req.body.id}})
     .then(() => {
-        User.updateOne({_id: req.body.user_id}, {$pull: {likes: decodedId}})
+        Post.updateOne({_id: req.body.id}, {$pull: {likes: decodedId}})
         .then((data) => {res.json(data)})
         .catch((error) => {console.log('Error: ' + error)});
     })
     .catch(err => res.json(err));
 });
+
+//GET ALL COMMENTS
+router.get('/getcomments', (req, res) => {
+    Comment.find({})
+    .then((data) => {res.json(data)})
+    .catch((error) => {console.log('Error: ' + error)});
+})
+
+//GET ALL COMMENTS FROM POST
+router.get('/getpostcomments/:id', verifyToken, (req, res) => {
+    Comment.find({postId: req.params.id})
+    .then((data) => {res.json(data)})
+    .catch((error) => {console.log('Error: ' + error)});
+})
+
+//POST A COMMENT
+router.put('/postcomment', verifyToken, (req, res) => {
+    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    const comment = new Comment({
+        postId: req.body.postId,
+        creatorId: decodedId,
+        creatorName: req.body.creatorName,
+        creatorImg: req.body.creatorImg, 
+        content: req.body.content
+    });
+    comment.save();
+    Post.updateOne({_id: req.body.postId}, {$push: {comments: comment}})
+    .then(() => {(data) => {res.json(data)}})
+    .catch((error) => {console.log('Error: ' + error)});
+})
 
 function verifyToken(req, res, next){
     const bearerHeader = req.headers['authorization'];

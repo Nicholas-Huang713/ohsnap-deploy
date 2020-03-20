@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+const PostSchema = require('./post').schema;
 
 const UserSchema = new Schema({
     imageName: {
@@ -16,7 +17,8 @@ const UserSchema = new Schema({
     email: String,
     password: String,
     favelist: [String],
-    posts: [{}],
+    posts: [PostSchema],
+    admin: Boolean,
     date: {
         type: String,
         default: Date.now()

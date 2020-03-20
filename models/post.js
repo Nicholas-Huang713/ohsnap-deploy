@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+const CommentSchema = require('./comment').schema;
 
 const PostSchema = new Schema({
+    creatorId: String,
+    creatorName: String,
+    profileImg: String,
     imageName: {
         type: String, 
         default: "none",
@@ -14,10 +18,7 @@ const PostSchema = new Schema({
     title: String,
     description: String,
     likes: [String],
-    comments: [{
-        user_id: String,
-        comment: String
-    }],
+    comments: [CommentSchema],
     date: {
         type: String,
         default: Date.now()
