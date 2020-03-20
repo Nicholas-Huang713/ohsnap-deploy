@@ -29,10 +29,6 @@ app.use(express.urlencoded({extended: false}));
 app.use('/uploads', express.static('uploads'));
 
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({extended: true}));
-app.use(morgan('dev'));
-
 app.use(morgan('tiny'));
 app.use('/api', routes);
 
