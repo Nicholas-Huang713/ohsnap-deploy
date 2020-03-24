@@ -7,77 +7,232 @@ const jwt = require('jsonwebtoken');
 const {registerValidation, loginValidation} = require('../validation');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const aws = require( 'aws-sdk' );
+const multerS3 = require( 'multer-s3' );
+const path = require( 'path' );
+const url = require('url');
 
-const storage = multer.diskStorage({
-    destination: function(req, file, cb){
-        cb(null,'./uploads');
-    },
-    filename: function(req, file, cb){
-        cb(null, Date.now() + file.originalname);
-    }
+//AWS SDK
+const s3 = new aws.S3({
+    accessKeyId: 'AKIAYDBVS4R3GC2XJLEH',
+    secretAccessKey: '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',
+    Bucket: 'ohsnapbucket'
 });
 
-const fileFilter = (req, file, cb) => {
-    if(file.mimetype === 'image/jpeg' || file.mimetype === "image/png" || file.mimetype === "image/jpg"){
-        cb(null, true);
-    } else {
-        cb(null, false);
+//STORAGE
+const imgUpload = multer({
+    storage: multerS3({
+        s3: s3,
+        bucket: 'ohsnapbucket',
+        acl: 'public-read',
+        key: function (req, file, cb) {
+        cb(null, path.basename( file.originalname, path.extname( file.originalname ) ) + '-' + Date.now() + path.extname( file.originalname ) )
+        }
+    }),
+    // limits:{ fileSize: 5000000 }, 
+    fileFilter: function( req, file, cb ){
+     checkFileType( file, cb );
     }
-};
+}).single('image');
 
-const upload = multer({
-    storage: storage,
-    fileFilter: fileFilter
+//CHECK FOR IMAGE FILE
+function checkFileType( file, cb ){
+    const filetypes = /jpeg|jpg|png|gif/;
+    const extname = filetypes.test( path.extname( file.originalname ).toLowerCase());
+    const mimetype = filetypes.test( file.mimetype );
+    if( mimetype && extname ){
+        return cb( null, true );
+    } else {
+        cb( 'Error: Images Only!' );
+    }
+}
+
+//UPLOADE IMAGE TO S3
+router.post('/img-upload', (req, res) => {
+    imgUpload(req, res, (error) => {
+        if(error){
+            console.log( 'errors', error);
+            res.json({error: error});
+        } else {
+            if( req.file === undefined ){
+                console.log( 'Error: No File Selected!' );
+                res.json( 'Error: No File Selected' );
+            } else {
+                const imageName = req.file.key;
+                const imageLocation = req.file.location;
+                const data = {
+                    imageName, imageLocation
+                }
+                res.json(data);
+            }
+        }
+    });
+});
+
+//UPLOAD REGISTRATION PROFILE IMAGE TO S3
+router.post('/img-upload/:id', (req, res) => {
+    imgUpload(req, res, (error) => {
+        if(error){
+            console.log( 'errors', error);
+            res.json({error: error});
+        } else {
+            if( req.file === undefined ){
+                console.log( 'Error: No File Selected!' );
+                res.json( 'Error: No File Selected' );
+            } else {
+                const imageName = req.file.key;
+                const imageLocation = req.file.location;
+                User.updateOne({_id: req.params.id}, {$set: {imageName, imageData: imageLocation}})
+                .then((res) => {
+                    console.log("Success")
+                })
+                .catch((err) => {
+                    res.status(400).send(err);
+                })
+            }
+        }
+    });
+});
+
+//LOGIN
+router.post('/login', async (req, res) => {
+    const {error} = loginValidation(req.body);
+    if(error) return res.status(400).send(error.details[0].message);
+    const user = await User.findOne({email: req.body.email});
+    if(!user) return res.status(400).send('Email does not exist');
+    const validPass = await bcrypt.compare(req.body.password, user.password);
+    if(!validPass) return res.status(400).send('Invalid password');
+    const token = jwt.sign({_id: user._id}, process.env.TOKEN_SECRET);
+    res.header('auth-token', token).send(token);
+});
+
+//REGISTER
+router.post('/register', async (req, res) => {
+    const {error} = registerValidation(req.body);
+    if(error) return res.status(400).json(error.details[0].message);
+    const emailExist = await User.findOne({email: req.body.email});
+    if(emailExist) return res.status(400).json('Email already exists');
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(req.body.password, salt);
+    const user = new User({
+        firstname: req.body.firstname,
+        lastname: req.body.lastname,
+        email: req.body.email, 
+        password: hashedPassword
+    });
+    try{
+        await user.save();
+        const token = jwt.sign({_id: user._id}, process.env.TOKEN_SECRET);
+        const data = {
+            token,
+            id: user._id
+        }
+        res.header('auth-token', token).send(data);
+    } catch(err){
+        res.status(400).send(err);
+    }   
 });
 
 //CREATE NEW POST
-router.put('/uploadimage', verifyToken, upload.single('imageData'), (req, res, next) => {
-    console.log(req.body);
-    if (!req.file) return res.send('Please upload a file');
-    console.log("File recieved");
+router.post('/newpost', verifyToken, (req, res) => {
     const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
-    const newImage = new Post({
+    imgUpload(req, res, (error) => {
+        if(error){
+            console.log( 'errors', error);
+            res.json({error: error});
+        } else {
+            if( req.file === undefined ){
+                console.log( 'Error: No File Selected!' );
+                res.json( 'Error: No File Selected' );
+            } else {
+                const imageName = req.file.key;
+                const imageLocation = req.file.location;
+                const newPost = new Post({
+                    creatorId: decodedId, 
+                    creatorName: req.body.creatorName,
+                    profileImg: req.body.profileImg,
+                    imageName,
+                    imageData: imageLocation,
+                    description: req.body.description
+                });
+                
+                User.updateOne({_id: decodedId}, {$push: {posts: newPost}})
+                .then(() => {
+                    newPost.save();
+                    User.findOne({_id: decodedId})
+                    .then((data) => {
+                        const posts = data.posts;
+                        res.json(posts);
+                    })
+                    .catch((err) => {
+                        res.json(err);
+                    })
+                })
+                .catch(err => res.json(err));
+            }
+        }
+    });
+});
+
+//CREATE NEW POST
+router.put('/createpost', verifyToken, (req, res, next) => {
+    console.log(req.body);
+    const decodedId = jwt.verify(req.token,  process.env.TOKEN_SECRET);
+    const newPost = new Post({
         creatorId: decodedId, 
         creatorName: req.body.creatorName,
         profileImg: req.body.profileImg,
         imageName: req.body.imageName,
-        imageData: req.file.path,
+        imageData: req.body.imageLocation,
         description: req.body.description
     });
-    newImage.save();
-    User.updateOne({_id: decodedId}, {$push: {posts: newImage}})
+    newPost.save();
+    User.updateOne({_id: decodedId}, {$push: {posts: newPost}})
     .then(() => {
         res.status(200).json({
             success: true,
             document: result
         });
-        console.log("Successfully uploaded image");
+        console.log("Successfully created post");
     })
     .catch(err => res.json(err));
 });
 
 //UPDATE USER PROFILE PHOTO
-router.put('/updateprofileimg', verifyToken, upload.single('imageData'), async (req, res, next) => {
-    console.log(req.body);
-    if (!req.file) return res.send('Please choose a file');
+router.put('/updateprofileimg', verifyToken, async (req, res, next) => {
     const decodedId = await jwt.verify(req.token,  process.env.TOKEN_SECRET);
-    User.updateOne({_id: decodedId},{$set:{imageData : req.file.path, imageName: req.body.imageName}})
-    .then(() => {
-        Post.updateMany({creatorId: decodedId}, {$set:{profileImg: req.file.path}})
-        .then(() => {
-            Comment.updateMany({creatorId: decodedId}, {$set:{creatorImg: req.file.path}})
+    imgUpload(req, res, (error) => {
+        if(error){
+            console.log( 'errors', error);
+            res.json({error: error});
+        } else {
+            if( req.file === undefined ){
+                console.log( 'Error: No File Selected!' );
+                res.json( 'Error: No File Selected' );
+            } else {
+                const imageName = req.file.key;
+                const imageLocation = req.file.location;
+                
+                User.updateOne({_id: decodedId},{$set:{imageData: imageLocation, imageName}})
                 .then(() => {
-                    User.findOne({_id: decodedId})
-                        .then((data) => {
-                            res.json(data);
-                        })
-                        .catch((error) => console.log('Error: ' + error));
+                    Post.updateMany({creatorId: decodedId}, {$set:{profileImg: imageLocation}})
+                    .then(() => {
+                        Comment.updateMany({creatorId: decodedId}, {$set:{creatorImg: imageLocation}})
+                            .then(() => {
+                                User.findOne({_id: decodedId})
+                                    .then((data) => {
+                                        res.json(data);
+                                    })
+                                    .catch((error) => console.log('Error: ' + error));
+                            })
+                            .catch((error) => {console.log('Error: ' + error)});
+                    })
+                    .catch((error) => {console.log('Error: ' + error)});
                 })
                 .catch((error) => {console.log('Error: ' + error)});
-        })
-        .catch((error) => {console.log('Error: ' + error)});
-    })
-    .catch((error) => {console.log('Error: ' + error)});
+            }
+        }
+    });
 });
 
 //UPDATE USER PROFILE INFO
@@ -101,44 +256,6 @@ router.put('/updateprofile', verifyToken, async (req, res, next) => {
         })
     .catch((error) => {console.log('Error: ' + error)});
     
-});
-
-//REGISTER
-router.post('/register', upload.single('imageData'), async (req, res, next) => {
-    const {error} = registerValidation(req.body);
-    if(error) return res.status(400).json(error.details[0].message);
-    const emailExist = await User.findOne({email: req.body.email});
-    if(emailExist) return res.status(400).json('Email already exists');
-    if (!req.file) return res.send('Please upload a file');
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(req.body.password, salt);
-    const user = new User({
-        firstname: req.body.firstname,
-        lastname: req.body.lastname,
-        email: req.body.email, 
-        password: hashedPassword,
-        imageName: req.body.imageName,
-        imageData: req.file.path
-    });
-    try{
-        await user.save();
-        const token = jwt.sign({_id: user._id}, process.env.TOKEN_SECRET);
-        res.header('auth-token', token).send(token);
-    } catch(err){
-        res.status(400).send(err);
-    }   
-});
-
-//LOGIN
-router.post('/login', async (req, res) => {
-    const {error} = loginValidation(req.body);
-    if(error) return res.status(400).send(error.details[0].message);
-    const user = await User.findOne({email: req.body.email});
-    if(!user) return res.status(400).send('Email does not exist');
-    const validPass = await bcrypt.compare(req.body.password, user.password);
-    if(!validPass) return res.status(400).send('Invalid password');
-    const token = jwt.sign({_id: user._id}, process.env.TOKEN_SECRET);
-    res.header('auth-token', token).send(token);
 });
 
 //GET ALL USERS

@@ -6,11 +6,11 @@ const UserSchema = new Schema({
     imageName: {
         type: String, 
         default: "none",
-        required: true
+        required: false
     },
     imageData: {
         type: String,
-        required: true
+        required: false
     },
     firstname: String,
     lastname: String,
@@ -18,7 +18,10 @@ const UserSchema = new Schema({
     password: String,
     favelist: [String],
     posts: [PostSchema],
-    admin: Boolean,
+    admin: {
+        type: Boolean,
+        default: "false"
+    },
     date: {
         type: String,
         default: Date.now()
